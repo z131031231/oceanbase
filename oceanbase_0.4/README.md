@@ -84,19 +84,19 @@
   </tr>
   <tr>
     <td width="9%"><div align="center">1</div></td>
-    <td width="29%"><a href="https://github.com/alibaba/oceanbase/wiki/OceanBase-0.4.2-%E6%8F%8F%E8%BF%B0" target="_blank">《OceanBase 0.4.2 描述》</a></td>
+    <td width="29%"><a href="http://code.taobao.org/p/OceanBase/wiki/OceanBase-0.4.2-%E6%8F%8F%E8%BF%B0" target="_blank">《OceanBase 0.4.2 描述》</a></td>
     <td width="55%">该文档主要介绍OceanBase 0.4.2的架构、存储引擎和功能等信息。</td>
     <td width="7%"><a href="https://raw.github.com/alibaba/oceanbase/oceanbase_0.4/doc/wiki/OceanBase 0.4.2 描述.pdf?raw=true">下载</a></td>
   </tr>
   <tr>
     <td width="9%"><div align="center">2</div></td>
-    <td width="29%"> <a href="https://github.com/alibaba/oceanbase/wiki/OceanBase-0.4.2-%E5%AE%89%E8%A3%85%E6%8C%87%E5%8D%97"  target="_blank">《OceanBase 0.4.2 安装指南》</a></td>
+    <td width="29%"> <a href="http://code.taobao.org/p/OceanBase/wiki/OceanBase-0.4.2-%E5%AE%89%E8%A3%85%E6%8C%87%E5%8D%97"  target="_blank">《OceanBase 0.4.2 安装指南》</a></td>
     <td width="55%">该文档主要介绍OceanBase 0.4.2的安装过程。</td>
     <td width="7%"><a href="https://raw.github.com/alibaba/oceanbase/oceanbase_0.4/doc/wiki/OceanBase 0.4.2 安装指南.pdf?raw=true">下载</a></td>
   </tr>
   <tr>
     <td><div align="center">3</div></td>
-    <td><a href="https://github.com/alibaba/oceanbase/wiki/OceanBase-0.4.2-%E9%85%8D%E7%BD%AE%E6%8C%87%E5%8D%97"  target="_blank">《OceanBase 0.4.2 配置指南》</a></td>
+    <td><a href="http://code.taobao.org/p/OceanBase/wiki/OceanBase-0.4.2-%E9%85%8D%E7%BD%AE%E6%8C%87%E5%8D%97"  target="_blank">《OceanBase 0.4.2 配置指南》</a></td>
     <td>该文档主要介绍搭建OceanBase 0.4.2的主备RootServer、主备UpdateServer和主备集群的方法。</td>
     <td><a href="https://github.com/alibaba/oceanbase/blob/oceanbase_0.4/doc/wiki/OceanBase 0.4.2 配置指南.pdf?raw=true">下载</a></td>
   </tr>
