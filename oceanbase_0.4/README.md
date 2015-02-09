@@ -102,13 +102,13 @@
   </tr>
   <tr>
     <td width="9%"><div align="center">4</div></td>
-    <td width="29%"><a href="https://github.com/alibaba/oceanbase/wiki/OceanBase-0.4.2-%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8" target="_blank">《OceanBase 0.4.2 快速入门》</a></td>
+    <td width="29%"><a href="http://code.taobao.org/p/OceanBase/wiki/OceanBase%200.4.2%20%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8/" target="_blank">《OceanBase 0.4.2 快速入门》</a></td>
     <td width="55%">该文档主要介绍如何快速入门OceanBase 0.4.2的方法。</td>
     <td width="7%"><a href="https://raw.github.com/alibaba/oceanbase/oceanbase_0.4/doc/wiki/OceanBase 0.4.2 快速入门.pdf?raw=true">下载</a></td>
   </tr>
   <tr>
     <td width="9%"><div align="center">5</div></td>
-    <td width="29%"><a href="https://github.com/alibaba/oceanbase/wiki/OceanBase-0.4.2-%E5%AE%A2%E6%88%B7%E7%AB%AF-%E7%94%A8%E6%88%B7%E6%8C%87%E5%8D%97"  target="_blank">《OceanBase 0.4.2 客户端 用户指南》</a></td>
+    <td width="29%"><a href="http://code.taobao.org/p/OceanBase/wiki/OceanBase%200.4.2%20%E5%AE%A2%E6%88%B7%E7%AB%AF%20%E7%94%A8%E6%88%B7%E6%8C%87%E5%8D%97/"  target="_blank">《OceanBase 0.4.2 客户端 用户指南》</a></td>
     <td width="55%">该文档主要介绍OceanBase 0.4.2的Java客户端和C客户端的使用方法。</td>
     <td width="7%"><a href="https://raw.github.com/alibaba/oceanbase/oceanbase_0.4/doc/wiki/OceanBase 0.4.2 客户端 用户指南.pdf?raw=true">下载</a></td>
   </tr>
@@ -120,19 +120,19 @@
   </tr>
   <tr>
     <td width="9%"><div align="center">7</div></td>
-    <td width="29%"><a href="https://github.com/alibaba/oceanbase/wiki/Oceanbase-0.4.2-SQL-%E5%8F%82%E8%80%83%E6%8C%87%E5%8D%97"  target="_blank">《OceanBase 0.4.2 SQL 参考指南》</a></td>
+    <td width="29%"><a href="http://code.taobao.org/p/OceanBase/wiki/OceanBase%200.4.2%20SQL%20%E5%8F%82%E8%80%83%E6%8C%87%E5%8D%97/"  target="_blank">《OceanBase 0.4.2 SQL 参考指南》</a></td>
     <td width="55%">该文档主要介绍OceanBase 0.4.2支持的SQL语言、语法规则和使用方法等。</td>
     <td width="7%"><a href="https://github.com/alibaba/oceanbase/blob/oceanbase_0.4/doc/wiki/OceanBase%200.4.2%20SQL%20%E5%8F%82%E8%80%83%E6%8C%87%E5%8D%97.pdf?raw=true">下载</a></td>
   </tr>
   <tr>
     <td width="9%"><div align="center">8</div></td>
-    <td width="29%"><a href="https://github.com/alibaba/oceanbase/wiki/OceanBase-0.4.2-%E5%8F%82%E8%80%83%E6%8C%87%E5%8D%97" target="_blank">《OceanBase 0.4.2 参考指南》</a></td>
+    <td width="29%"><a href="http://code.taobao.org/p/OceanBase/wiki/OceanBase%200.4.2%20%E5%8F%82%E8%80%83%E6%8C%87%E5%8D%97/" target="_blank">《OceanBase 0.4.2 参考指南》</a></td>
     <td width="55%">该文档主要介绍OceanBase 0.4.2的日志参考、系统结果码和术语等信息。</td>
     <td width="7%"><a href="https://raw.github.com/alibaba/oceanbase/oceanbase_0.4/doc/wiki/OceanBase 0.4.2 参考指南.pdf?raw=true">下载</a></td>
   </tr>
   <tr>
     <td width="9%"><div align="center">9</div></td>
-    <td width="29%"><a href="https://github.com/alibaba/oceanbase/wiki/OceanBase-0.4.2-升级指导书" target="_blank">《OceanBase 0.4.2 升级指导书》</a></td>
+    <td width="29%"><a href="http://code.taobao.org/p/OceanBase/wiki/OceanBase%200.4.2%20%E5%8D%87%E7%BA%A7%E6%8C%87%E5%AF%BC%E4%B9%A6/" target="_blank">《OceanBase 0.4.2 升级指导书》</a></td>
     <td width="55%">本文档主要介绍OceanBase 0.4.1版本升级到0.4.2版本的详细方法。</td>
     <td width="7%"><a href="https://raw.github.com/alibaba/oceanbase/oceanbase_0.4/doc/wiki/OceanBase 0.4.2 升级指导书.pdf?raw=true">下载</a></td>
   </tr>
