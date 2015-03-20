@@ -1,15 +1,19 @@
 #!/usr/bin/perl -w
 
-# Time-stamp: <2014-09-23 17:06:54 fufeng.syd>
 # Author: 符风 <fufeng.syd@alipay.com>
 #
-# require: oceanbase 0.5, perl 5.10+
-use threads;
+# Todo:
+# 1. remove dependence of oceanbase root dir. [DONE]
+# 2. promote precise of envrionment checking and command running.
+# 3. make indenpendence of linux user
+# 4. ...
+
 use Data::Dumper;
 use Getopt::Long;
 use Pod::Usage;
 use strict;
 use warnings;
+use autodie;
 use vars qw($init_cfg @clusters $settings $action $debug);
 
 #########################################################################
@@ -38,7 +42,6 @@ sub read_string($) {
   my $self        = undef;
   my $counter     = 0;
   my @servers     = ();
-  my $appname     = undef;
   foreach ( split /(?:\015{1,2}\012|\015|\012)/, shift ) {
     $counter++;
 
@@ -50,7 +53,6 @@ sub read_string($) {
       } else {
         common::perror_exit('wrong group name');
       }
-      $appname = $self->{global}->{public}{appname};
       push @servers, { %{$self->{global}{public}},
                        %{$self->{global}{$server_type}},
                        %{$self->{$group}{public}},
@@ -60,13 +62,11 @@ sub read_string($) {
                        'cluster_id'  => $cluster_id };
       # add lms if match rootserver
       if ($server_type eq 'rootserver') {
-        my $devname = $servers[-1]{devname};
         push @servers, { %{$self->{global}{public}},
                          %{$self->{global}{mergeserver}},
                          %{$self->{$group}{public}},
                          'server_type' => 'listener_mergeserver',
                          'ip'          => $_,
-                         'devname'     => $devname,
                          'cluster_id'  => $cluster_id };
       }
       next;
@@ -86,28 +86,21 @@ sub read_string($) {
 
     # Handle end group
     if (/^#\@end_(.+)$/) {
-      common::perror_exit("end_$1 not match start_$group (line $counter)") unless ($1 eq $group);
       $group = undef;
       my $cur_group = $1;
-      my $cluster_id = 0;
-      if ($cur_group =~ /^cluster_(\d+)$/) {
-        $cluster_id = $1;
-      } else {
-        next;
-      }
-
+      next unless $cur_group =~ /^cluster_(\d+)$/;
       my $cluster = {
                      'rootserver'           => [grep {$_->{server_type} eq 'rootserver'} @servers],
                      'updateserver'         => [grep {$_->{server_type} eq 'updateserver'} @servers],
                      'chunkserver'          => [grep {$_->{server_type} eq 'chunkserver'} @servers],
                      'mergeserver'          => [grep {$_->{server_type} eq 'mergeserver'} @servers],
                      'listener_mergeserver' => [grep {$_->{server_type} eq 'listener_mergeserver'} @servers],
-                     'cluster_id'           => $cluster_id,
-                     'appname'              => $appname,
+                     'cluster_id'           => $cur_group,
+                     'master_cluster_id'    => $self->{global}{public}{master_cluster_id},
                     };
       $cluster = {
                   %$cluster,
-                  'master_rootserver' => 'x',
+                  'vip'      => $cluster->{rootserver}[0]{vip},
                   'rs_port'  => $cluster->{rootserver}[0]{port},
                   'lms_port' => $cluster->{listener_mergeserver}[0]{lms_port}
                  };
@@ -152,18 +145,6 @@ sub read_string($) {
 
   $main::init_cfg = $self->{init_config};
   $main::settings = $self->{global}{settings};
-}
-
-sub common_extra_init_cfg {
-  my @root_server = map { map {$_->{ip}} @{$_->{rootserver}} } @main::clusters;
-  my $root_server_list = join ';', @root_server;
-  return "root_server_list=$root_server_list";
-}
-
-sub rs_extra_init_cfg {
-  my $ups_cnt = scalar map { @{$_->{updateserver}} } @main::clusters;
-  my $rs_cnt = scalar map { @{$_->{rootserver}} } @main::clusters;
-  return "ups_count_limit=$ups_cnt,max_candidate_count=$rs_cnt";
 }
 
 ######################################################################
@@ -313,44 +294,30 @@ sub do_server($$$$) {
 }
 
 sub check_ssh {
-  pinfo("Checking ssh [$_[0]]");
+  pinfo("checking ssh [$_[0]]");
   system("ssh -T -o PreferredAuthentications=publickey $_[0] -l admin -o ConnectTimeout=1 true") == 0
     or perror_exit ("ssh check failed! host: [$_[0]]");
   return $?;
 }
 
-sub bootstrap() {
-  for (my $i = 0; $i < 100; $i++) {
-    pinfo("Waiting prepare bootstrap");
-    return 0 unless do_init_sql("alter system bootstrap");
-    sleep(1);
-  }
-  return 1;
+sub bootstrap ($$) {
+  my ($ip, $port, $role) = @_;
+  my $rs_admin = $main::settings->{rs_admin};
+  do_ssh($ip, "$rs_admin -r $ip -p $port -t 60000000 boot_strap", "bootstrap...");
 }
 
 sub get_mmrs() {
-  #TODO: select from system table
   perror_exit('no clusters') if @main::clusters <= 0;
-  ($main::clusters[0]->{master_rootserver}, $main::clusters[0]->{rs_port});
+  my $master_cluster = $main::clusters[0]->{master_cluster_id};
+  my @master_ob = grep { $_->{cluster_id} eq $master_cluster } @main::clusters;
+  ($master_ob[0]->{vip}, $master_ob[0]->{rs_port});
 }
 
 sub get_one_lms() {
   perror_exit('no clusters') if @main::clusters <= 0;
-  ($main::clusters[0]{listener_mergeserver}[0]{ip}, $main::clusters[0]->{lms_port});
-}
-
-sub do_sql($) {
-  my $sql = shift;
-  my ($host, $port) = get_one_lms();
-  my ($user, $password) = ('admin', 'admin');
-  system(qq{mysql -h$host -P$port -u$user -p$password -Bs -e "$sql" >/dev/null 2>&1});
-}
-
-sub do_init_sql($) {
-    my $sql = shift;
-    my ($host, $port) = get_one_lms();
-    my ($user, $password) = ('__ob_server', 'admin');
-    system(qq{mysql -h$host -P$port -u$user -p$password -Bs -e "$sql" >/dev/null 2>&1});
+  my $master_cluster = $main::clusters[0]->{master_cluster_id};
+  my @master_ob = grep { $_->{cluster_id} eq $master_cluster } @main::clusters;
+  ($master_ob[0]->{vip}, $master_ob[0]->{lms_port});
 }
 
 sub do_sql_query($) {
@@ -364,9 +331,10 @@ sub verify_bootstrap {
   for my $cluster (@main::clusters) {
     my $cluster_id = $cluster->{cluster_id};
     $cluster_id =~ s/^cluster_//;
+    my $role = $cluster->{master_cluster_id} eq $cluster->{cluster_id} ? 1 : 2;
     my $sql = "SELECT count(1) FROM __all_cluster "
-      . "WHERE cluster_id = $cluster_id "
-        . "AND cluster_port = $cluster->{lms_port} AND status = 1";
+      . "WHERE cluster_id = $cluster_id AND cluster_vip = '$cluster->{vip}' "
+        . "AND cluster_port = $cluster->{lms_port} AND cluster_role = $role";
     my $cnt = do_sql_query($sql);
     if ($cnt == 1) {
       pinfo("Verify cluster [$cluster_id] OK!");
@@ -409,7 +377,7 @@ sub verify_bootstrap {
           my $sql = "SELECT count(1) FROM __all_sys_config_stat WHERE svr_type='$server_bin'"
             . " AND svr_ip = '$_->{ip}' AND svr_port = '$_->{port}'";
           chomp (my $cnt = do_sql_query($sql));
-          if ($cnt > 1 or ($_->{server_type} eq 'rootserver' and $_->{ip} ne $_->{master_rootserver})) {
+          if ($cnt > 1) {
             pinfo("Verify config OK! [<$server_bin> $_->{ip}:$_->{port} cnt:$cnt]");
           } else {
             # not ok
@@ -424,20 +392,20 @@ sub verify_bootstrap {
   return 1;
 }
 
+sub quicktest() {
+  my ($lms_ip, $lms_port) = get_one_lms();
+
+  for my $test ("create", "show", "count_distinct", "join_basic", "group_by_1", "sq_from", "ps_complex") {
+    print "[TEST] $test\n";
+    system("bin/mysqltest --logdir=tests --port=$lms_port --tmpdir=tests --database=test --timer-file=tests --user=admin --host=$lms_ip --result-file=tests/${test}.result --test-file=tests/${test}.test --tail-lines=10 --password=admin --silent");
+  }
+}
+
 sub run_mysql() {
   my ($host, $port)     = get_one_lms();
   my ($user, $password) = ('admin', 'admin');
   my $cmd               = "mysql -h$host -P$port -u$user -p$password";
   system split / /, $cmd;
-}
-
-sub get_devname($) {
-    my $host = shift;
-    my $cmd = "ip r l |grep $host";
-    my ($ret, $output) = do_ssh($host, $cmd, "Geting devname: $host");
-    common::perror_exit("Get devname failed!") if $ret;
-    my @t = (split ' ', $output);
-    return $t[2];
 }
 
 #######################################################################
@@ -452,36 +420,27 @@ sub new {
 sub delete_data($) {
   my $cluster = shift;
 
-  map main::async ( sub {
-                      my $cs = $_[0];
-                      my $cmd = join ' ', map { "rm -rf /data/$_/$cs->{appname} &" } (1..$cs->{max_disk_num});
-                      $cmd .= 'rm -rf $main::settings->{ob_home}/{log,data,run,etc/*.bin} &';
-                      $cmd .= 'wait';
-                      common::do_ssh($cs->{ip}, $cmd, "Deleting data of cs: $cs->{ip}");
-                    }, $_
-                  ), @{$cluster->{chunkserver}};
+  map {
+    my $cs = $_;
+    my $cmd = "rm -rf /data/{1..$cs->{max_disk_num}}/$cs->{appname}/ $main::settings->{ob_home}/{log,data,run,etc/*.bin}";
+    common::do_ssh($cs->{ip}, $cmd, "Delete data of cs:$cs->{ip}");
+  } @{$cluster->{chunkserver}};
 
   map {
     my $cmd = "rm -rf $main::settings->{ob_home}/{log,data,run,etc/*.bin}";
-    common::do_ssh($_->{ip}, $cmd, "Deleting data of ms: $_->{ip}");
+    common::do_ssh($_->{ip}, $cmd, "Delete data of ms:$_->{ip}");
   } (@{$cluster->{mergeserver}}, @{$cluster->{listen_mergeserver}});
 
   map {
     my $ups = $_;
-    my $cmd = join ' ', map { "rm -rf /data/$_/ups_data/$ups->{appname}/ &" } (1..$ups->{max_disk_num});
-    $cmd .= "rm -rf $ups->{commitlog_dir} &";
-    $cmd .= "rm -rf $ups->{storage_commitlog_dir} &";
-    $cmd .= "rm -rf $main::settings->{ob_home}/{log,data,run,etc/*.bin} &";
-    $cmd .= "wait";
-    common::do_ssh($ups->{ip}, $cmd, "Deleting data of ups: $ups->{ip}");
+    my $cmd = "rm -rf /data/{1..$ups->{max_disk_num}}/ups_data/ $ups->{commitlog_dir} $main::settings->{ob_home}/{log,data,run,etc/*.bin}";
+    common::do_ssh($ups->{ip}, $cmd, "Delete data of ups:$ups->{ip}");
   } @{$cluster->{updateserver}};
 
   map {
-    my $cmd = "rm -rf $main::settings->{ob_home}/{log,data,run,etc/*.bin}";
-    common::do_ssh($_->{ip}, $cmd, "Deleting data of rs: $_->{ip}");
+    my $cmd = "rm -rf $_->{commitlog_dir} $main::settings->{ob_home}/{log,data,run,etc/*.bin}";
+    common::do_ssh($_->{ip}, $cmd, "Delete data of rs:$_->{ip}");
   } @{$cluster->{rootserver}};
-
-  $_->join() for threads->list();
 }
 
 sub stop {
@@ -499,15 +458,15 @@ sub stop {
     if ($k eq 'rootserver') {
       map { common::do_ssh($_->{ip},
                            "kill $kill_opts `cat run/rootserver.pid`",
-                           "Stopping $_->{server_type} [$_->{ip}]", 1) } @$v;
+                           "stop $_->{server_type} [$_->{ip}]", 1) } @$v;
     } elsif ($k eq 'updateserver') {
       map { common::do_ssh($_->{ip},
                            "kill $kill_opts `cat run/updateserver.pid`",
-                           "Stopping $_->{server_type} [$_->{ip}]", 1) } @$v;
+                           "stop $_->{server_type} [$_->{ip}]", 1) } @$v;
     } elsif ($k eq 'chunkserver') {
       map { common::do_ssh($_->{ip},
                            "kill $kill_opts `cat run/chunkserver.pid`",
-                           "Stopping $_->{server_type} [$_->{ip}]", 1) } @$v;
+                           "stop $_->{server_type} [$_->{ip}]", 1) } @$v;
     } elsif ($k eq 'mergeserver' or $k eq 'listener_mergeserver') {
       my $select = sub { return $_[0]->{$_[1]} };
       my $short_name = $select->({'mergeserver'=>'ms', 'listener_mergeserver'=>'lms'}, $k);
@@ -515,26 +474,26 @@ sub stop {
       for (@$v) {
         if ($first_stop or not $_->{$conf_name} =~ m/true/i) {
           common::do_ssh($_->{ip}, "kill $kill_opts `cat run/mergeserver.pid`",
-                         "Stopping $_->{server_type} [$_->{ip}]", 1);
+                         "stop $_->{server_type} [$_->{ip}]", 1);
         } else {
           common::do_ssh($_->{ip},
                          "supervisorctl reread > /dev/null",
-                         "Reloading supervisor config [$_->{ip}]")
-              and common::perror_exit("Reload supervisor daemon conf failed");
+                         "Reload supervisor config [$_->{ip}]")
+              and common::perror_exit("reload supervisor daemon conf failed");
 
           common::do_ssh($_->{ip},
                          "supervisorctl status $short_name | grep -q RUNNING",
-                         "Checking lms running status [$_->{ip}]")
+                         "check lms running status [$_->{ip}]")
               and common::pwarn("$short_name is already stopped") and next;
 
           common::do_ssh($_->{ip},
                          "supervisorctl stop $short_name > /dev/null",
-                         "Stopping $short_name using supervisor [$_->{ip}]");
+                         "stop $short_name using supervisor [$_->{ip}]");
 
           common::do_ssh($_->{ip},
                          "supervisorctl status $short_name | grep -q RUNNING",
-                         "Checking $short_name running status [$_->{ip}]")
-              and common::pinfo("Stop $short_name done");
+                         "check $short_name running status [$_->{ip}]")
+              and common::pinfo("stop $short_name done");
         }
       }
     }
@@ -549,7 +508,7 @@ sub status($) {
   my %ip_list = ();
   map { $ip_list{$_} = [] } @servers;
   while (my ($k, $v) = each %$self) {
-    my @server_name = grep { $k =~ /(?<!master_)$_$/ } @servers;
+    my @server_name = grep { $k =~ /$_/ } @servers;
     if (@server_name > 0) {
       my $server_bin = shift @server_name;
       map { push @{$ip_list{$server_bin}}, $_->{ip} } @$v;
@@ -572,14 +531,21 @@ sub status($) {
   ($absense_any, $found_any);
 }
 
+sub set_obi_role($) {
+  my $cluster = shift;
+  my ($ip, $port, $role, $rs_admin) = ($cluster->{rootserver}[0]{vip},
+                                       $cluster->{rootserver}[0]{port},
+                                       $cluster->{cluster_id} eq $cluster->{master_cluster_id} ? "OBI_MASTER" : "OBI_SLAVE",
+                                       $main::settings->{rs_admin});
+  common::do_ssh($ip, "$rs_admin -r $ip -p $port set_obi_role -o $role", "Set obi role [$cluster->{cluster_id} $role]");
+}
+
 sub check_ssh($) {
   my $cluster = shift;
-  my @all_servers_type = grep { /^[^_]+server$/ } keys %$cluster;
-  my %all_ips;
+  my @all_servers_type = grep { /server$/ } keys %$cluster;
   for my $server_type (@all_servers_type) {
-    map { $all_ips{$_->{ip}} = 1; } @{$cluster->{$server_type}};
+    map { common::check_ssh($_->{ip}); } @{$cluster->{$server_type}};
   }
-  map { common::check_ssh($_) } keys %all_ips;
 }
 
 sub start_rootservers($) {
@@ -592,7 +558,7 @@ sub start_rootservers($) {
 
 sub start_chunkservers($) {
   my $self = shift;
-  my $chunkservers = $self->{chunkserver};
+  my ($chunkservers, $rs_vip, $rs_port) = ($self->{chunkserver}, $self->{vip}, $self->{rs_port});
   map {
     $self->__start_one_chunkserver($_);
   } @$chunkservers;
@@ -600,22 +566,19 @@ sub start_chunkservers($) {
 
 sub start_mergeservers($) {
   my $self = shift;
-  my ($mergeservers, $master_rootserver, $rs_port) = ($self->{mergeserver},
-                                                      $self->{master_rootserver}, $self->{rs_port});
+  my ($mergeservers, $rs_vip, $rs_port) = ($self->{mergeserver}, $self->{vip}, $self->{rs_port});
   my $cfg = $main::init_cfg->{mergeserver};
   my $init_cfg_str = join ',',map { "$_=$cfg->{$_}" } keys %$cfg;
-  $init_cfg_str .= ',' . config::common_extra_init_cfg();
   for my $ms (@$mergeservers) {
-    my $cmd = "bin/mergeserver -r $master_rootserver:$rs_port -p $ms->{port} -z $ms->{sql_port} -n $ms->{appname} -C $ms->{cluster_id}";
-    $cmd .= " -i " . common::get_devname($ms->{ip});
-    $cmd .= " -o \"$init_cfg_str\"" if $init_cfg_str;
+    my $cmd = "bin/mergeserver -r $rs_vip:$rs_port -p $ms->{port} -z $ms->{sql_port} -i $ms->{devname}";
+    $cmd .= " -o $init_cfg_str" if $init_cfg_str;
     common::do_ssh($ms->{ip}, $cmd, "Start $ms->{server_type} [$ms->{ip}]");
   }
 }
 
 sub start_updateservers($$$) {
   my $self = shift;
-  my $updateservers = $self->{updateserver};
+  my ($updateservers, $rs_vip, $rs_port) = ($self->{updateserver}, $self->{vip}, $self->{rs_port});
   map {
     $self->__start_one_updateserver($_);
   } @$updateservers;
@@ -623,17 +586,14 @@ sub start_updateservers($$$) {
 
 sub start_lms($) {
   my $self = shift;
-  my ($lmss, $master_rootserver, $rs_port) = ($self->{listener_mergeserver},
-                                              $self->{master_rootserver}, $self->{rs_port});
+  my ($lmss, $rs_vip, $rs_port) = ($self->{listener_mergeserver}, $self->{vip}, $self->{rs_port});
 
   my $init_cfg = $main::init_cfg->{mergeserver};
   my $init_cfg_str = join ',',map { "$_=$init_cfg->{$_}" } keys %$init_cfg;
-  $init_cfg_str .= ',' . config::common_extra_init_cfg();
 
   for my $lms (@$lmss) {
-    my $cmd = "bin/mergeserver -r $master_rootserver:$rs_port -p $lms->{port} -z $lms->{lms_port} -t lms -n $lms->{appname} -C $lms->{cluster_id}";
-    $cmd .= " -i " . common::get_devname($lms->{ip});
-    $cmd .= " -o \"$init_cfg_str\"" if $init_cfg_str;
+    my $cmd = "bin/mergeserver -r $rs_vip:$rs_port -p $lms->{port} -z $lms->{lms_port} -i $lms->{devname} -t lms";
+    $cmd .= " -o $init_cfg_str" if $init_cfg_str;
     common::do_ssh($lms->{ip}, $cmd, "Start $lms->{server_type} [$lms->{ip}]");
   }
 }
@@ -662,7 +622,7 @@ sub start($$) {
         # start ms using supervisor
         for (@$v) {
           unless ($_->{$conf_name} =~ m/true/i) {
-            common::do_ssh($_->{ip}, "bin/mergeserver", "Start $_->{server_type} [$_->{ip}]");
+            map { common::do_ssh($_->{ip}, "bin/mergeserver", "Start $_->{server_type} [$_->{ip}]") } @$v;
           } else {
             common::do_ssh($_->{ip},
                            "supervisorctl reread > /dev/null",
@@ -671,7 +631,7 @@ sub start($$) {
 
             common::do_ssh($_->{ip},
                            "supervisorctl status $short_name | grep -q RUNNING",
-                           "Checking $short_name running status [$_->{ip}]")
+                           "check $short_name running status [$_->{ip}]")
                 or common::pwarn("$short_name is already started") and next;
 
             common::do_ssh($_->{ip},
@@ -684,19 +644,29 @@ sub start($$) {
 
             common::do_ssh($_->{ip},
                            "supervisorctl status $short_name | grep -q RUNNING",
-                           "Checking $short_name running status [$_->{ip}]")
-                  and common::pinfo("$short_name is started");
+                           "check $short_name running status [$_->{ip}]")
+                and common::pinfo("$short_name is started");
           }
         }
       }
     }
   }
+  $self->set_obi_role();
 }
 
-sub enable_cluster($) {
+sub bootstrap($) {
   my $self = shift;
-  my $cmd = "alter system start cluster cluster_id=" . $self->{cluster_id};
-  common::do_init_sql($cmd);
+  my $ob_home = $main::settings->{ob_home} || "/home/admin/oceanbase";
+
+  if ($self->{cluster_id} eq $self->{master_cluster_id}) {
+    if (common::bootstrap($self->{vip}, $self->{rs_port}) == 0) {
+      common::pinfo("Bootstrap success.");
+    } else {
+      common::pinfo("Bootstrap failed.");
+      return 1;
+    }
+  }
+  return 0;
 }
 
 # belows are private functions
@@ -704,77 +674,55 @@ sub __start_one_rootserver($$) {
   my ($self, $rs) = @_;
   common::perror_exit("Not rootserver!") unless $rs->{server_type} eq 'rootserver';
 
+  my ($master_rs_vip, $master_rs_port) = common::get_mmrs();
   my $init_cfg = $main::init_cfg->{rootserver};
   my $init_cfg_str = join ',',map { "$_=$init_cfg->{$_}" } keys %$init_cfg;
-  $init_cfg_str .= config::rs_extra_init_cfg() . ',' . config::common_extra_init_cfg();
   my $cmd = '';
-  $cmd .= "bin/rootserver -p $rs->{port} -C $rs->{cluster_id} -n $rs->{appname}";
-  $cmd .= " -i " . common::get_devname($rs->{ip});
-  $cmd .= " -o \"$init_cfg_str\"" if $init_cfg_str;
+  if ($main::action eq 'init') {
+    $cmd = "mkdir -p data/rs $rs->{commitlog_dir} && ln -s $rs->{commitlog_dir} data/rs_commitlog"
+      . " && echo -e \"[app_name]\nname=$rs->{appname}\nmax_table_id=1500\" >etc/schema.ini && ";
+  }
+  $cmd .= "bin/rootserver -r $rs->{vip}:$rs->{port} -R $master_rs_vip:$master_rs_port -i $rs->{devname} -C $rs->{cluster_id}";
+  $cmd .= " -o $init_cfg_str" if $init_cfg_str;
   common::do_ssh($rs->{ip}, $cmd, "Start $rs->{server_type} [$rs->{ip}]");
 }
 
 sub __start_one_chunkserver($$$) {
   my ($self, $cs) = @_;
-  my ($master_rootserver, $rs_port) = ($self->{master_rootserver}, $self->{rs_port});
+  my ($rs_vip, $rs_port) = ($self->{vip}, $self->{rs_port});
   common::perror_exit("Not chunkserver!") unless $cs->{server_type} eq 'chunkserver';
 
   my $init_cfg = $main::init_cfg->{chunkserver};
   my $init_cfg_str = join ',',map { "$_=$init_cfg->{$_}" } keys %$init_cfg;
-  $init_cfg_str = config::common_extra_init_cfg() . ',' . $init_cfg_str;
   my $cmd = 'true';
   if ($main::action eq "init") {
-    $cmd = <<EOF;
-for ((i=1; i<=$cs->{max_disk_num}; i++))
-do
-  mkdir -p /data/\$i/$cs->{appname}/sstable;
-done &&
-mkdir -p data &&
-for ((i=1; i<=$cs->{max_disk_num}; i++))
-do
-  ln -s -T /data/\$i data/\$i;
-done
-EOF
-    common::do_ssh($cs->{ip}, $cmd, , "Prepare $cs->{server_type} [$cs->{ip}]");
+    $cmd = "for ((i=1; i<=$cs->{max_disk_num}; i++)) do mkdir -p /data/\$i/$cs->{appname}/sstable /data/\$i/Recycle; done"
+      . " && mkdir -p data"
+        . " && for ((i=1; i<=$cs->{max_disk_num}; i++)) do ln -s -T /data/\$i data/\$i; done";
   }
-  $cmd = "bin/chunkserver -r $master_rootserver:$rs_port "
-      . "-p $cs->{port} -n $cs->{appname} -C $cs->{cluster_id}";
-  $cmd .= " -i " . common::get_devname($cs->{ip});
-  $cmd .= " -o \"$init_cfg_str\"" if $init_cfg_str;
+  $cmd .= "&& bin/chunkserver -r $rs_vip:$rs_port -p $cs->{port} -n $cs->{appname} -i $cs->{devname}";
+  $cmd .= " -o $init_cfg_str" if $init_cfg_str;
   common::do_ssh($cs->{ip}, $cmd, , "Start $cs->{server_type} [$cs->{ip}]");
 }
 
 sub __start_one_updateserver($) {
   my ($self, $ups) = @_;
-  my ($master_rootserver, $rs_port) = ($self->{master_rootserver}, $self->{rs_port});
+  my ($rs_vip, $rs_port) = ($self->{vip}, $self->{rs_port});
   common::perror_exit("Not updateserver!") unless $ups->{server_type} eq 'updateserver';
 
   my $cfg = $main::init_cfg->{updateserver};
   my $init_cfg_str = join ',',map { "$_=$cfg->{$_}" } keys %$cfg;
-  $init_cfg_str = config::common_extra_init_cfg() . $init_cfg_str;
   my $cmd = 'true';
   if ($main::action eq "init") {
-    $cmd = <<EOF;
-for ((i=1; i<=$ups->{max_disk_num}; i++))
-do
-  mkdir -p /data/\$i/ups_data/$ups->{appname}/sstable;
-done &&
-mkdir -p data/ups_data &&
-for ((i=1; i<=$ups->{max_disk_num}; i++))
-do
-  ln -s -T /data/\$i/ups_data data/ups_data/\$i;
-done &&
-mkdir -p $ups->{commitlog_dir} &&
-ln -s $ups->{commitlog_dir} data/ups_commitlog &&
-mkdir -p $ups->{storage_commitlog_dir} &&
-ln -s $ups->{storage_commitlog_dir} data/storage_tablet_commitlog;
-EOF
-    common::do_ssh($ups->{ip}, $cmd, "Prepare $ups->{server_type} [$ups->{ip}]");
+    $cmd = "mkdir -p data/ups_data/raid{" . join(',', (0 .. ($ups->{max_disk_num} - 1)/ 2)) . "}"
+      . " && mkdir -p $ups->{commitlog_dir} && ln -s $ups->{commitlog_dir} data/ups_commitlog";
+    map {
+      $cmd .= " && mkdir -p /data/$_/ups_data && ln -s -T /data/$_/ups_data data/ups_data/raid" . int(($_ - 1) / 2) . "/store" . ($_ - 1) % 2;
+    } (1 .. $ups->{max_disk_num});
   }
-  $cmd = "bin/updateserver -r $master_rootserver:$rs_port "
-      . "-p $ups->{port} -m $ups->{inner_port} -n $ups->{appname} -C $ups->{cluster_id}";
-  $cmd .= " -i " . common::get_devname($ups->{ip});
-  $cmd .= " -o \"$init_cfg_str\"" if $init_cfg_str;
+  $cmd .= " && bin/updateserver -r $rs_vip:$rs_port -p $ups->{port} -m $ups->{inner_port} -i $ups->{devname}"
+    . ($init_cfg_str and " -o $init_cfg_str" or "");
+
   common::do_ssh($ups->{ip}, $cmd, "Start $ups->{server_type} [$ups->{ip}]");
 }
 
@@ -805,49 +753,32 @@ sub local_op($$$) {
 sub create_server_list($) {
   my $clusters = shift;
   pinfo ("create server list.");
-
-  my $all_rs_list = '/tmp/all_rs_list.' . $clusters->[0]->{appname};
-  my $all_cs_list = '/tmp/all_cs_list.'  . $clusters->[0]->{appname};
-  my $all_ups_list = '/tmp/all_ups_list.' . $clusters->[0]->{appname};
-
-  my @all_list_file = ($all_rs_list, $all_cs_list, $all_ups_list);
   map {
-     open my $fh, '>', $_;
-     close $fh;
-  } @all_list_file;
-
-  map {
-    my $filename = '/tmp/rs_list.' . $_->{cluster_id} . '.' . $_->{appname};
+    my $filename = '/tmp/rs_list.' . $_->{cluster_id};
     open my $fh, '>', $filename;
     map { print $fh "$_->{ip}\n" } @{$_->{rootserver}};
     close $fh;
-    system("cat $filename >> $all_rs_list");
   } @$clusters;
   map {
-    my $filename = '/tmp/ups_list.' . $_->{cluster_id} . '.' . $_->{appname};
+    my $filename = '/tmp/ups_list.' . $_->{cluster_id};
     open my $fh, '>', $filename;
     map { print $fh "$_->{ip}\n" } @{$_->{updateserver}};
     close $fh;
-    system("cat $filename >> $all_ups_list");
   } @$clusters;
   map {
-    my $filename = '/tmp/cs_list.' . $_->{cluster_id}. '.' . $_->{appname};
+    my $filename = '/tmp/cs_list.' . $_->{cluster_id};
     open my $fh, '>', $filename;
     map { print $fh "$_->{ip}\n" } @{$_->{chunkserver}};
     close $fh;
-    system("cat $filename >> $all_cs_list");
   } @$clusters;
   map {
-    my $rs_list_name = '/tmp/rs_list.' . $_->{cluster_id}. '.' . $_->{appname};
-    my $ups_list_name = '/tmp/ups_list.' . $_->{cluster_id}. '.' . $_->{appname};
-    my $cs_list_name = '/tmp/cs_list.' . $_->{cluster_id}. '.' . $_->{appname};
+    my $rs_list_name = '/tmp/rs_list.' . $_->{cluster_id};
+    my $ups_list_name = '/tmp/ups_list.' . $_->{cluster_id};
+    my $cs_list_name = '/tmp/cs_list.' . $_->{cluster_id};
     map {
       system ("scp -q $rs_list_name $_->{ip}:~/oceanbase/rs_list");
       system ("scp -q $ups_list_name $_->{ip}:~/oceanbase/ups_list");
       system ("scp -q $cs_list_name $_->{ip}:~/oceanbase/cs_list");
-      system ("scp -q $all_cs_list $_->{ip}:~/oceanbase/all_cs_list");
-      system ("scp -q $all_rs_list $_->{ip}:~/oceanbase/all_rs_list");
-      system ("scp -q $all_ups_list $_->{ip}:~/oceanbase/all_ups_list");
     } @{$_->{rootserver}};
   } @$clusters;
   pinfo ("create server list done!");
@@ -867,21 +798,7 @@ sub stop_all_server_until_success {
     map {
       $found_any = ($_->status())[1];
       pdebug("found_any: $found_any");
-      pinfo("Waiting all server stop!") if $found_any;
-      sleep 3 && next if $found_any;
-    } @$clusters;
-    last if not $found_any;
-  }
-  $opts->{force_stop} = 1;
-  map {
-    $_->stop($opts);
-  } @$clusters;
-
-  for (1..20) {
-    map {
-      $found_any = ($_->status())[1];
-      pdebug("found_any: $found_any");
-      pinfo("Waiting all server stop!") if $found_any;
+      pinfo("Wait all server stop!") if $found_any;
       sleep 3 && next if $found_any;
     } @$clusters;
     last if not $found_any;
@@ -902,7 +819,7 @@ sub start_all_server_until_success($) {
     map {
       $absense_any = ($_->status())[0];
       pdebug("absense_any: $absense_any");
-      pinfo("Waiting all server start!") if $absense_any;
+      pinfo("Wait all server start!") if $absense_any;
       sleep 3 && next if $absense_any;
     } @$clusters;
     last if not $absense_any;
@@ -936,7 +853,7 @@ sub all_op {
   }
 
   config::init($cfg_file);
-  my @cur_clusters = grep { (not $cluster_id) or $_->{cluster_id} eq $cluster_id } @clusters;
+  my @cur_clusters = grep { $_->{cluster_id} =~ /cluster_$cluster_id/ } @clusters;
 
   if ($action eq "dump") {
     print Dumper(@clusters);
@@ -948,16 +865,16 @@ sub all_op {
     exit (0) if $char ne 'y' and $char ne 'Y';
 
     pinfo("");
-    pinfo("Begin check ssh connection");
+    pinfo("begin check ssh connection");
     map { $_->check_ssh() } @cur_clusters;
     pinfo("");
-    pinfo("Begin check servers alive");
+    pinfo("begin check servers alive");
     map {
       my $found_any = ($_->status())[1];
       perror_exit("There're still servers running, can't clean data") if $found_any;
     } @cur_clusters;
     pinfo("");
-    pinfo("Begin delete data");
+    pinfo("begin delete data");
     map { $_->delete_data() } @cur_clusters;
     exit(0);
   } elsif ($action =~ "start") {
@@ -974,29 +891,24 @@ sub all_op {
     }
 
     pinfo("");
-    pinfo("Begin check ssh connection");
+    pinfo("begin check ssh connection");
     map { $_->check_ssh() } @cur_clusters;
     pinfo("");
-    pinfo("Begin create servers list");
+    pinfo("begin create servers list");
     create_server_list(\@cur_clusters);
     pinfo("");
-    pinfo("Begin start servers");
+    pinfo("begin start servers");
     map {
       $_->start(1);
+      # will ignore non master cluster
+      if (0 != $_->bootstrap()) {
+        perror_exit("Bootstrap fail.");
+      }
     } @cur_clusters;
-
-    sleep(10);                  # waiting for rootserver election
-    if (0 != common::bootstrap()) {
-      perror_exit("Bootstrap fail.");
-    } else {
-      pinfo("Bootstrap successfully.");
-    }
-    map {
-      0 == $_->enable_cluster() and pinfo("Enable cluster $_->{cluster_id} done");
-    } @cur_clusters;
+    pinfo("Bootstrap ok");
 
     pinfo("");
-    pinfo("Begin verifing status");
+    pinfo("begin verifing status");
     my $verify_ok = 1;
     for (1..6) {
       sleep 10;
@@ -1005,18 +917,10 @@ sub all_op {
     perror_exit("OceanBase verify failed.") unless $verify_ok;
 
     pinfo("");
-    pinfo("Begin restart servers");
+    pinfo("begin restart servers");
     stop_all_server_until_success(\@cur_clusters, {first_stop => 1});
     start_all_server_until_success(\@cur_clusters);
 
-    pinfo("");
-    for (1..100) {
-      last if common::do_sql("select 1") == 0;
-      pinfo("Waiting for oceanbase initialization");
-      sleep 1;
-    }
-
-    pinfo("Enjoy it!");
     exit(0);
   } elsif ($action eq "stop") {
     if (not $force) {
@@ -1042,6 +946,7 @@ sub all_op {
   } elsif ($action eq "check") {
     map { $_->check_ssh() } @cur_clusters;
     common::verify_bootstrap;
+    common::quicktest;
   } elsif ($action eq "mysql") {
     common::run_mysql;
   }
