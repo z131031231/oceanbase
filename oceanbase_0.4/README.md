@@ -193,11 +193,4 @@
     <td width="7%"><a href="https://raw.github.com/alibaba/oceanbase/oceanbase_0.4/doc/wiki/OceanBase 0.4.1 参考指南.pdf">下载</a></td>
   </tr>
 </table>
-<h2><a name="title_6" id="title_6"></a>6 联系我们</h2>
- <p align="left">如果您有任何疑问或是想了解OceanBase的最新开源动态消息，请联系我们：</p>
-  <p align="left"><b>支付宝（中国）网络技术有限公司·OceanBase团队</b></p>
-  <p align="left">地址：杭州市万塘路18号黄龙时代广场B座；邮编：310099</p>
-  <p align="left">&emsp;&emsp;&emsp;北京市朝阳区东三环中路1号环球金融中心西塔14层；邮编：100020</p>
-  <p align="left">邮箱： <a href="mailto:alipay-oceanbase-support@list.alibaba-inc.com">alipay-oceanbase-support@list.alibaba-inc.com</a></p>
-  <p align="left"> 新浪微博：<a href="http://weibo.com/u/2356115944">http://weibo.com/u/2356115944</a></p>
-  <p align="left">技术交流群（阿里旺旺）：853923637</p>
+
